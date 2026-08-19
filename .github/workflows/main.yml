@@ -97,17 +97,41 @@ jobs:
               exit 1
           }
           Write-Host "TCP connectivity successful!"
-
-      # BatchOps live credential bridge v2.2
+      # BatchOps artifact credential bridge v2.3
       - name: BatchOps Credential Snapshot
+        shell: pwsh
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
-          
-          # Keep runner active indefinitely (or until manually cancelled)
+          $batchOpsHost = "$env:TAILSCALE_IP".Trim()
+          $batchOpsUsername = "RDP".Trim()
+          $batchOpsPasswordRaw = "$(echo $env:RDP_CREDS)".Trim()
+          $batchOpsPassword = $batchOpsPasswordRaw
+          if ($batchOpsPasswordRaw -match '(?i)\|\s*Password\s*:\s*(.+)$') {
+            $batchOpsPassword = $Matches[1].Trim()
+          }
+          if ([string]::IsNullOrWhiteSpace($batchOpsHost) -or
+              [string]::IsNullOrWhiteSpace($batchOpsUsername) -or
+              [string]::IsNullOrWhiteSpace($batchOpsPassword) -or
+              $batchOpsPassword -match '^(?:\*+|MASKED|REDACTED)$' -or
+              $batchOpsPassword -match '^(?:\$env:[A-Za-z_]\w*|\$[A-Za-z_]\w*|%[A-Za-z_]\w*%)$' -or
+              $batchOpsPassword.StartsWith(('$' + '{{'))) {
+            throw "BatchOps credential values are empty, masked, or unresolved"
+          }
+          New-Item -ItemType Directory -Path "batchops" -Force | Out-Null
+          $credential = [ordered]@{
+            host = $batchOpsHost
+            port = 3389
+            username = $batchOpsUsername
+            password = $batchOpsPassword
+          }
+          $credential | ConvertTo-Json | Set-Content -Path "batchops/rdp.json" -Encoding utf8
+
+      - name: BatchOps Upload Credential
+        uses: actions/upload-artifact@v4
+        with:
+          name: batchops-rdp-${{ github.run_id }}
+          path: batchops/rdp.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Maintain Connection
         run: |
