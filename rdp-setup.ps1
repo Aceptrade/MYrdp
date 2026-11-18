@@ -29,6 +29,8 @@ $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 
 $LogFile = Join-Path (Split-Path -Parent $Tujuan) 'setup.log'
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
+# Jalur penuh: kalau $Tujuan relatif, file bisa mendarat di folder lain.
+$Tujuan = (Get-Item -LiteralPath $Tujuan).FullName
 
 # PowerShell 5.1 membaca .ps1 sebagai ANSI kalau tidak ada BOM, sehingga nama
 # CJK dari Drive rusak. Kembalikan ke UTF-8 untuk semua output teks.
@@ -41,6 +43,11 @@ function Tulis([string]$Pesan) {
     $baris = '[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), $Pesan
     Write-Host $baris
     Add-Content -LiteralPath $LogFile -Value $baris -Encoding UTF8
+}
+
+function Buka-Folder([string]$Path) {
+    # Tampilkan foldernya supaya tidak perlu mencari manual di Explorer.
+    try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $Path + '"') } catch { }
 }
 
 function Ukuran([double]$Byte) {
@@ -287,6 +294,9 @@ if (-not $TanpaVideo) {
 
 Tulis '--- isi folder ---'
 Get-ChildItem -LiteralPath $Tujuan -File | ForEach-Object { Tulis ("  {0}  {1}" -f $_.Name, (Ukuran $_.Length)) }
+
+Tulis "LOKASI FILE: $Tujuan"
+Buka-Folder $Tujuan
 
 if ($gagal) {
     Tulis 'SELESAI DENGAN MASALAH. Baca baris GAGAL di atas.'
