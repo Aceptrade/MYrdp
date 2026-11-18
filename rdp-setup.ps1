@@ -64,34 +64,43 @@ function Nama-Aman([string]$Nama) {
 
 # ---------------------------------------------------------------- unduh
 function Ambil-File([string]$Url, [string]$Simpan) {
-    $link = $Url
-    if ($Url -match 'drive\.(usercontent\.)?google\.com') {
-        $halaman = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
-        $form = [regex]::Match($halaman, '<form[^>]*action="([^"]+)"[^>]*>(.*?)</form>', 'Singleline,IgnoreCase')
-        if ($form.Success) {
-            $aksi = $form.Groups[1].Value -replace '&amp;', '&'
-            $pasangan = @()
-            foreach ($i in [regex]::Matches($form.Groups[2].Value, '<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', 'IgnoreCase')) {
-                $pasangan += ('{0}={1}' -f [uri]::EscapeDataString($i.Groups[1].Value), [uri]::EscapeDataString($i.Groups[2].Value))
-            }
-            if ($pasangan) { $link = $aksi + '?' + ($pasangan -join '&') }
-        }
-    }
-    $klien = New-Object System.Net.WebClient
+    # .NET menyimpan dengan nama ANSI (ANSI_NAME) bila jalurnya dianggap bukan
+    # Unicode; disini nama file justru berisi CJK, jadi unduhan ditulis ke nama
+    # sementara ASCII lalu diganti namanya. Rename lewat PowerShell memakai
+    # Unicode, sehingga nama CJK tetap utuh.
+    $sementara = Join-Path (Split-Path -Parent $Simpan) ('.unduh-' + [guid]::NewGuid().ToString('N') + '.part')
     try {
-        $klien.Headers.Add('User-Agent', $UA)
-        $klien.Headers.Add('Accept', '*/*')
-        $klien.DownloadFile($link, $Simpan)
+        $link = $Url
+        if ($Url -match 'drive\.(usercontent\.)?google\.com') {
+            $halaman = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
+            $form = [regex]::Match($halaman, '<form[^>]*action="([^"]+)"[^>]*>(.*?)</form>', 'Singleline,IgnoreCase')
+            if ($form.Success) {
+                $aksi = $form.Groups[1].Value -replace '&amp;', '&'
+                $pasangan = @()
+                foreach ($i in [regex]::Matches($form.Groups[2].Value, '<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', 'IgnoreCase')) {
+                    $pasangan += ('{0}={1}' -f [uri]::EscapeDataString($i.Groups[1].Value), [uri]::EscapeDataString($i.Groups[2].Value))
+                }
+                if ($pasangan) { $link = $aksi + '?' + ($pasangan -join '&') }
+            }
+        }
+        $klien = New-Object System.Net.WebClient
+        try {
+            $klien.Headers.Add('User-Agent', $UA)
+            $klien.Headers.Add('Accept', '*/*')
+            $klien.DownloadFile($link, $sementara)
+        } finally {
+            $klien.Dispose()
+        }
+        if (-not (Test-Path -LiteralPath $sementara)) { throw 'file hasil unduhan tidak ditemukan' }
+        $ukuran = (Get-Item -LiteralPath $sementara).Length
+        if ($ukuran -lt 65536) { throw "server mengirim halaman kecil ($ukuran byte), bukan file" }
+
+        if (Test-Path -LiteralPath $Simpan) { Remove-Item -LiteralPath $Simpan -Force }
+        Move-Item -LiteralPath $sementara -Destination $Simpan -Force
+        return $ukuran
     } finally {
-        $klien.Dispose()
+        Remove-Item -LiteralPath $sementara -Force -ErrorAction SilentlyContinue
     }
-    if (-not (Test-Path -LiteralPath $Simpan)) { throw 'file hasil unduhan tidak ditemukan' }
-    $ukuran = (Get-Item -LiteralPath $Simpan).Length
-    if ($ukuran -lt 65536) {
-        Remove-Item -LiteralPath $Simpan -Force -ErrorAction SilentlyContinue
-        throw "server mengirim halaman kecil ($ukuran byte), bukan file"
-    }
-    return $ukuran
 }
 
 function Unduh-Dengan-Ulang([string]$Url, [string]$Simpan) {
@@ -159,41 +168,79 @@ function Pasang-Software {
 
 # ---------------------------------------------------------------- video
 function Ambil-DaftarDrive([string]$FolderId) {
-    $halaman = (Invoke-WebRequest -Uri "https://drive.google.com/drive/folders/$FolderId" `
-            -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
-    # Windows PowerShell membaca respons tanpa charset sebagai Latin-1.
-    $halaman = [System.Text.Encoding]::UTF8.GetString(
-        [System.Text.Encoding]::GetEncoding(28591).GetBytes($halaman))
+    # Unduh halaman folder sebagai BYTE, lalu decode sendiri sebagai UTF-8.
+    # Inilah satu-satunya cara yang mempertahankan nama CJK di PowerShell 5.1:
+    #  - Invoke-WebRequest memakai charset dari header; Drive mengirim tanpa
+    #    charset, jadi teksnya dibaca Latin-1 dan CJK berubah jadi '?'.
+    #  - Mengubah header Content-Type setelah response tidak berpengaruh.
+    # Dengan byte mentah, hasilnya persis seperti yang dikirim Google.
+    $url = "https://drive.google.com/drive/folders/$FolderId"
+    $minta = [System.Net.WebRequest]::Create($url)
+    $minta.UserAgent = $UA
+    $minta.Timeout = 60000
+    $minta.ReadWriteTimeout = 120000
+    $jawab = $minta.GetResponse()
+    try {
+        $alir = $jawab.GetResponseStream()
+        $memori = New-Object System.IO.MemoryStream
+        try {
+            $alir.CopyTo($memori)
+            $byte = $memori.ToArray()
+        } finally { $memori.Dispose(); $alir.Dispose() }
+    } finally { $jawab.Close() }
+
+    $halaman = [System.Text.Encoding]::UTF8.GetString($byte)
+    if ($halaman -notmatch '_DRIVE_ivd') {
+        # Cadangan: kalau UTF-8 bukan encoding-nya, coba Latin-1 seperti dulu.
+        $halaman = [System.Text.Encoding]::GetEncoding(28591).GetString($byte)
+    }
+
     $m = [regex]::Match($halaman, 'window\[''_DRIVE_ivd''\]\s*=\s*''(.*?)'';', 'Singleline')
     if (-not $m.Success) { throw "folder Drive tidak bisa dibaca (pastikan 'Anyone with the link')" }
     $raw = $m.Groups[1].Value
     $raw = [regex]::Replace($raw, '\\x([0-9a-fA-F]{2})', { param($x) [string][char][Convert]::ToInt32($x.Groups[1].Value, 16) })
     $raw = [regex]::Replace($raw, '\\u([0-9a-fA-F]{4})', { param($x) [string][char][Convert]::ToInt32($x.Groups[1].Value, 16) })
     $raw = $raw.Replace('\\', '\').Replace("\'", "'").Replace('\"', '"').Replace('\/', '/').Replace('\=', '=')
-    # Satu nama file pun berupa array JSON: [$id, [$induk], "nama", "mime", ...].
-    # Seluruh array itu diturunkan menjadi array PowerShell biasa di sini, jadi
-    # bisa dipakai langsung tanpa mengurai ulang per entri.
     $data = ConvertFrom-Json -InputObject $raw
 
-    $stack = New-Object System.Collections.Stack
-    $stack.Push($data)
+    # Entri folder berupa baris [id, [induk], nama, mime, ..., ukuran, ...].
+    # Indeks ukuran TIDAK tetap, jadi dicari dengan aturan: angka besar pertama
+    # setelah posisi 4. (Indeks 10 berisi timestamp, bukan ukuran.)
     $hasil = New-Object System.Collections.ArrayList
-    while ($stack.Count -gt 0) {
-        $node = $stack.Pop()
+    $antre = New-Object System.Collections.Queue
+    $antre.Enqueue(@($data, 0))
+    while ($antre.Count -gt 0) {
+        $kini = $antre.Dequeue()
+        $node = $kini[0]
+        $level = [int]$kini[1]
         if ($null -eq $node) { continue }
-        $arr = $node -as [System.Array]
-        if ($null -ne $arr) {
-            if ($arr.Length -ge 4 -and $arr[0] -is [string] -and $arr[2] -is [string] -and $arr[3] -is [string]) {
-                if ($arr[3] -match 'video|octet-stream') {
-                    [void]$hasil.Add([pscustomobject]@{ id = [string]$arr[0]; nama = [string]$arr[2] })
+        if ($node -is [System.Array]) {
+            if ($node.Count -ge 5) {
+                $id = $node[0]
+                $nama = $node[2]
+                $mime = $node[3]
+                if ($id -is [string] -and $nama -is [string] -and ("$mime" -match 'video|octet-stream')) {
+                    $ukuran = 0
+                    for ($i = 4; $i -lt $node.Count; $i++) {
+                        $v = $node[$i]
+                        if ($v -is [int] -or $v -is [long]) {
+                            $n = [long]$v
+                            # Timestamp dalam milidetik jauh lebih besar dari ukuran file.
+                            if ($n -ge 1000000 -and $n -lt 100000000000) { $ukuran = $n; break }
+                        }
+                    }
+                    [void]$hasil.Add([pscustomobject]@{ id = $id; nama = $nama; ukuran = $ukuran })
+                    continue
                 }
-                continue
             }
-            foreach ($item in $arr) {
-                if ($null -ne ($item -as [System.Array])) { $stack.Push($item) }
+            if ($level -lt 6) {
+                foreach ($anak in $node) {
+                    if ($null -ne $anak -and $anak -is [System.Array]) { $antre.Enqueue(@($anak, ($level + 1))) }
+                }
             }
         }
     }
+    if ($hasil.Count -eq 0) { throw "folder Drive kosong atau tidak bisa dibaca" }
     return , $hasil.ToArray()
 }
 
@@ -219,6 +266,9 @@ function Pasang-Video {
             Remove-Item -LiteralPath $tujuan -Force
         }
         $ukuran = Unduh-Dengan-Ulang -Url "https://drive.usercontent.google.com/download?id=$($f.id)&export=download&authuser=0" -Simpan $tujuan
+        if ($f.ukuran -gt 0 -and $ukuran -ne $f.ukuran) {
+            Tulis "  PERINGATAN: ukuran $ukuran byte, seharusnya $($f.ukuran) byte."
+        }
         Tulis "  selesai: $(Ukuran $ukuran) -> $namaFile"
     }
 }
