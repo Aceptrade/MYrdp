@@ -1,15 +1,14 @@
-# =====================================================================
+﻿# =====================================================================
 #  BatchOps RDP Setup  -  SATU SCRIPT, JALAN DI DALAM RDP
 # =====================================================================
-#  Cara pakai (di dalam RDP, PowerShell as Administrator):
-#     powershell -ExecutionPolicy Bypass -Command "& 'C:\BatchOps-setup.ps1' -Nomor 3"
-#  (ganti 3 dengan nomor urut RDP ini)
+#  Cara pakai (di dalam RDP):
+#     powershell -ExecutionPolicy Bypass -File C:\BatchOps-setup.ps1 -Nomor 3
 #
-#  Script ini:
-#     - mengunduh installer dari Google Drive lalu menginstalnya silent
-#     - mengunduh video sesuai NOMOR dari folder Google Drive
-#     - menulis log ke C:\BatchOps\setup.log
-#  Tidak butuh WinRM, tidak butuh kredensial, tidak butuh aplikasi.
+#  Nama file asli dari Google Drive dipertahankan, misalnya:
+#     03.空伞之下，旧爱皆是过客_FULL.mp4
+#
+#  Bila nama berisi karakter yang tidak boleh dipakai Windows (< > : " / \ | ? *),
+#  hanya karakter itu yang diganti '_' . Nomor dan judul tetap utuh.
 # =====================================================================
 
 param(
@@ -31,6 +30,13 @@ $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 $LogFile = Join-Path (Split-Path -Parent $Tujuan) 'setup.log'
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
 
+# PowerShell 5.1 membaca .ps1 sebagai ANSI kalau tidak ada BOM, sehingga nama
+# CJK dari Drive rusak. Kembalikan ke UTF-8 untuk semua output teks.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch { }
+
 function Tulis([string]$Pesan) {
     $baris = '[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), $Pesan
     Write-Host $baris
@@ -43,9 +49,21 @@ function Ukuran([double]$Byte) {
     return '{0:N0} KB' -f ($Byte / 1KB)
 }
 
+function Nama-Aman([string]$Nama) {
+    # Hanya karakter terlarang Windows yang diganti; judul & nomor tetap utuh.
+    $bersih = $Nama -replace '[<>:"/\\|?*\x00-\x1F]', '_'
+    $bersih = $bersih.Trim().TrimEnd('.')
+    if (-not $bersih) { $bersih = 'video.mp4' }
+    # Windows membatasi 255 karakter per nama file.
+    if ($bersih.Length -gt 180) {
+        $ext = [System.IO.Path]::GetExtension($bersih)
+        $bersih = $bersih.Substring(0, 180 - $ext.Length) + $ext
+    }
+    return $bersih
+}
+
 # ---------------------------------------------------------------- unduh
 function Ambil-File([string]$Url, [string]$Simpan) {
-    # Drive kadang membalas halaman konfirmasi kecil; selesaikan formnya dulu.
     $link = $Url
     if ($Url -match 'drive\.(usercontent\.)?google\.com') {
         $halaman = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
@@ -67,10 +85,10 @@ function Ambil-File([string]$Url, [string]$Simpan) {
     } finally {
         $klien.Dispose()
     }
-    if (-not (Test-Path $Simpan)) { throw 'file hasil unduhan tidak ditemukan' }
-    $ukuran = (Get-Item $Simpan).Length
+    if (-not (Test-Path -LiteralPath $Simpan)) { throw 'file hasil unduhan tidak ditemukan' }
+    $ukuran = (Get-Item -LiteralPath $Simpan).Length
     if ($ukuran -lt 65536) {
-        Remove-Item $Simpan -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $Simpan -Force -ErrorAction SilentlyContinue
         throw "server mengirim halaman kecil ($ukuran byte), bukan file"
     }
     return $ukuran
@@ -82,7 +100,7 @@ function Unduh-Dengan-Ulang([string]$Url, [string]$Simpan) {
             return (Ambil-File -Url $Url -Simpan $Simpan)
         } catch {
             Tulis "  gagal (percobaan $coba/3): $($_.Exception.Message)"
-            Remove-Item $Simpan -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $Simpan -Force -ErrorAction SilentlyContinue
             if ($coba -lt 3) { Start-Sleep -Seconds (5 * $coba) }
         }
     }
@@ -109,7 +127,7 @@ function Pasang-Software {
     }
 
     $tujuan = Join-Path $Tujuan 'HybridStudio-Setup.exe'
-    if (-not (Test-Path $tujuan)) {
+    if (-not (Test-Path -LiteralPath $tujuan)) {
         Tulis 'Mengunduh installer...'
         $ukuran = Unduh-Dengan-Ulang -Url $langsung -Simpan $tujuan
         Tulis "Installer siap: $(Ukuran $ukuran)"
@@ -117,7 +135,6 @@ function Pasang-Software {
         Tulis 'Installer sudah ada, memakai file lama.'
     }
 
-    # Kenali keluarga installer supaya bisa silent.
     $buffer = New-Object byte[] (2MB)
     $stream = [System.IO.File]::OpenRead($tujuan)
     try { $n = $stream.Read($buffer, 0, $buffer.Length) } finally { $stream.Dispose() }
@@ -144,6 +161,7 @@ function Pasang-Software {
 function Ambil-DaftarDrive([string]$FolderId) {
     $halaman = (Invoke-WebRequest -Uri "https://drive.google.com/drive/folders/$FolderId" `
             -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
+    # Windows PowerShell membaca respons tanpa charset sebagai Latin-1.
     $halaman = [System.Text.Encoding]::UTF8.GetString(
         [System.Text.Encoding]::GetEncoding(28591).GetBytes($halaman))
     $m = [regex]::Match($halaman, 'window\[''_DRIVE_ivd''\]\s*=\s*''(.*?)'';', 'Singleline')
@@ -152,7 +170,10 @@ function Ambil-DaftarDrive([string]$FolderId) {
     $raw = [regex]::Replace($raw, '\\x([0-9a-fA-F]{2})', { param($x) [string][char][Convert]::ToInt32($x.Groups[1].Value, 16) })
     $raw = [regex]::Replace($raw, '\\u([0-9a-fA-F]{4})', { param($x) [string][char][Convert]::ToInt32($x.Groups[1].Value, 16) })
     $raw = $raw.Replace('\\', '\').Replace("\'", "'").Replace('\"', '"').Replace('\/', '/').Replace('\=', '=')
-    $data = $raw | ConvertFrom-Json
+    # Satu nama file pun berupa array JSON: [$id, [$induk], "nama", "mime", ...].
+    # Seluruh array itu diturunkan menjadi array PowerShell biasa di sini, jadi
+    # bisa dipakai langsung tanpa mengurai ulang per entri.
+    $data = ConvertFrom-Json -InputObject $raw
 
     $stack = New-Object System.Collections.Stack
     $stack.Push($data)
@@ -160,15 +181,17 @@ function Ambil-DaftarDrive([string]$FolderId) {
     while ($stack.Count -gt 0) {
         $node = $stack.Pop()
         if ($null -eq $node) { continue }
-        if ($node -is [System.Array]) {
-            $arr = [System.Array]$node
+        $arr = $node -as [System.Array]
+        if ($null -ne $arr) {
             if ($arr.Length -ge 4 -and $arr[0] -is [string] -and $arr[2] -is [string] -and $arr[3] -is [string]) {
                 if ($arr[3] -match 'video|octet-stream') {
                     [void]$hasil.Add([pscustomobject]@{ id = [string]$arr[0]; nama = [string]$arr[2] })
                 }
                 continue
             }
-            foreach ($item in $arr) { if ($item -is [System.Array]) { $stack.Push($item) } }
+            foreach ($item in $arr) {
+                if ($null -ne ($item -as [System.Array])) { $stack.Push($item) }
+            }
         }
     }
     return , $hasil.ToArray()
@@ -188,17 +211,15 @@ function Pasang-Video {
     if ($cocok.Count -eq 0) { throw "video nomor $Nomor tidak ditemukan di folder" }
 
     foreach ($f in $cocok) {
-        $ekstensi = [System.IO.Path]::GetExtension($f.nama)
-        if (-not $ekstensi) { $ekstensi = '.mp4' }
-        $namaAman = '{0:00}{1}' -f $Nomor, $ekstensi
-        $tujuan = Join-Path $Tujuan $namaAman
-        Tulis "Video nomor $Nomor -> $namaAman"
-        if (Test-Path $tujuan) {
-            Tulis "  sudah ada ($(Ukuran (Get-Item $tujuan).Length)), unduh ulang untuk memastikan lengkap."
-            Remove-Item $tujuan -Force
+        $namaFile = Nama-Aman $f.nama
+        $tujuan = Join-Path $Tujuan $namaFile
+        Tulis "Video nomor $Nomor -> $namaFile"
+        if (Test-Path -LiteralPath $tujuan) {
+            Tulis "  sudah ada ($(Ukuran (Get-Item -LiteralPath $tujuan).Length)), unduh ulang untuk memastikan lengkap."
+            Remove-Item -LiteralPath $tujuan -Force
         }
         $ukuran = Unduh-Dengan-Ulang -Url "https://drive.usercontent.google.com/download?id=$($f.id)&export=download&authuser=0" -Simpan $tujuan
-        Tulis "  selesai: $(Ukuran $ukuran)"
+        Tulis "  selesai: $(Ukuran $ukuran) -> $namaFile"
     }
 }
 
@@ -215,7 +236,7 @@ if (-not $TanpaVideo) {
 } else { Tulis 'Video dilewati (-TanpaVideo).' }
 
 Tulis '--- isi folder ---'
-Get-ChildItem $Tujuan -File | ForEach-Object { Tulis ("  {0}  {1}" -f $_.Name, (Ukuran $_.Length)) }
+Get-ChildItem -LiteralPath $Tujuan -File | ForEach-Object { Tulis ("  {0}  {1}" -f $_.Name, (Ukuran $_.Length)) }
 
 if ($gagal) {
     Tulis 'SELESAI DENGAN MASALAH. Baca baris GAGAL di atas.'
