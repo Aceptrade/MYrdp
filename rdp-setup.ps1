@@ -264,10 +264,23 @@ function Pasang-Video {
     }
     if ($cocok.Count -eq 0) { throw "video nomor $Nomor tidak ditemukan di folder" }
 
+    # Video bisa diganti di Drive (hari lain, judul lain, nomor sama), jadi
+    # semua file lama bernomor sama dibuang dulu. Tanpa ini isi folder menumpuk.
+    $namaBaru = @($cocok | ForEach-Object { Nama-Aman $_.nama })
+    foreach ($lama in @(Get-ChildItem -LiteralPath $Tujuan -File -ErrorAction SilentlyContinue)) {
+        if ($namaBaru -contains $lama.Name) { continue }
+        $nomorLama = [regex]::Match($lama.Name, '^\s*0*(\d{1,4})(?!\d)')
+        if ($nomorLama.Success -and [int]$nomorLama.Groups[1].Value -eq $Nomor) {
+            Tulis "file lama nomor $Nomor dihapus: $($lama.Name)"
+            Remove-Item -LiteralPath $lama.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     foreach ($f in $cocok) {
         $namaFile = Nama-Aman $f.nama
         $tujuan = Join-Path $Tujuan $namaFile
         Tulis "Video nomor $Nomor -> $namaFile"
+
         if (Test-Path -LiteralPath $tujuan) {
             Tulis "  sudah ada ($(Ukuran (Get-Item -LiteralPath $tujuan).Length)), unduh ulang untuk memastikan lengkap."
             Remove-Item -LiteralPath $tujuan -Force
