@@ -7,6 +7,9 @@
 #  Nama file asli dari Google Drive dipertahankan, misalnya:
 #     03.空伞之下，旧爱皆是过客_FULL.mp4
 #
+#  Tujuan unduhan default: folder Downloads milik user yang menjalankan script
+#  (mis. C:\Users\RDP\Downloads). Ubah dengan -Tujuan "D:\lain".
+#
 #  Bila nama berisi karakter yang tidak boleh dipakai Windows (< > : " / \ | ? *),
 #  hanya karakter itu yang diganti '_' . Nomor dan judul tetap utuh.
 # =====================================================================
@@ -17,7 +20,7 @@ param(
 
     [string]$SoftwareUrl = 'https://drive.usercontent.google.com/download?id=1Sz2vug-QiQCZ0XBIndW1fl4hwPmrbbQv&export=download&authuser=0',
     [string]$FolderUrl   = 'https://drive.google.com/drive/u/1/folders/1LAU9WRkHrIkoA1gLl4zQwFERto2MOyEZ',
-    [string]$Tujuan      = 'C:\BatchOps\downloads',
+    [string]$Tujuan      = '',
     [switch]$TanpaSoftware,
     [switch]$TanpaVideo
 )
@@ -27,10 +30,18 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
-$LogFile = Join-Path (Split-Path -Parent $Tujuan) 'setup.log'
+# Default: folder Downloads milik user yang menjalankan script
+# (mis. C:\Users\RDP\Downloads).
+if (-not $Tujuan) {
+    $Tujuan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+}
+$LogFile = Join-Path $Tujuan 'setup.log'
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
 # Jalur penuh: kalau $Tujuan relatif, file bisa mendarat di folder lain.
 $Tujuan = (Get-Item -LiteralPath $Tujuan).FullName
+# Hanya file unduhan yang ada di folder ini yang disentuh; file lain milik user
+# di folder Downloads tidak pernah dihapus.
+$LogFile = Join-Path $Tujuan 'setup.log'
 
 # PowerShell 5.1 membaca .ps1 sebagai ANSI kalau tidak ada BOM, sehingga nama
 # CJK dari Drive rusak. Kembalikan ke UTF-8 untuk semua output teks.
