@@ -35,10 +35,21 @@ if "%IP%"=="" (
   exit /b 1
 )
 for /f "tokens=1-4 delims=." %%a in ("%IP%") do set NOMOR=%%d
+if %NOMOR% LSS 1 goto nomor_buruk
+if %NOMOR% GTR 20 goto nomor_buruk
+
 echo IP publik RDP ini: %IP%
 echo Nomor yang dipakai: %NOMOR%
 echo Membatalkan? Tekan Ctrl+C dalam 10 detik.
 timeout /t 10 /nobreak >nul
+goto jalan
+
+:nomor_buruk
+echo IP publik RDP ini: %IP%
+echo Angka terakhir IP ini (%NOMOR%) tidak dipakai sebagai nomor video.
+echo Isi nomornya manual, contoh: batchops.bat 7
+del /q "%TARGET%" >nul 2>&1
+exit /b 1
 
 :jalan
 if "%FOLDER%"=="" (
