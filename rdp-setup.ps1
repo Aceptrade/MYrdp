@@ -1,10 +1,20 @@
 ﻿# =====================================================================
 #  BatchOps RDP Setup  -  SATU SCRIPT, JALAN DI DALAM RDP
 # =====================================================================
-#  Cara pakai (di dalam RDP):
-#     powershell -ExecutionPolicy Bypass -File C:\BatchOps-setup.ps1 -Nomor 3
+#  Dua cara pakai:
 #
-#  Nama file asli dari Google Drive dipertahankan, misalnya:
+#  A. File (disarankan kalau mau diutak-atik):
+#     powershell -ExecutionPolicy Bypass -File C:\rdp-setup.ps1 -Nomor 3
+#
+#  B. Tempel langsung di PowerShell, satu baris:
+#     irm https://raw.githubusercontent.com/Aceptrade/MYrdp/main/rdp-setup.ps1 -OutFile "$env:TEMP\rdp-setup.ps1"; & "$env:TEMP\rdp-setup.ps1" -Nomor 3
+#
+#     Setelah itu file-nya ada di %TEMP%\rdp-setup.ps1 dan boleh diutak-atik.
+#
+#  Yang biasanya perlu diubah ada di blok "ATUR DI SINI" pada fungsi
+#  Pasang-Video (pemilihan video) dan pada param di bawah (link sumber).
+#
+#  Nama file asli dari sumber dipertahankan, misalnya:
 #     03.空伞之下，旧爱皆是过客_FULL.mp4
 #
 #  Tujuan unduhan default: folder Downloads milik user yang menjalankan script
@@ -364,11 +374,19 @@ function Pasang-Video {
         Tulis "$($daftar.Count) file di folder Drive."
     }
 
+    # --- ATUR DI SINI: video mana yang diunduh ---
+    # Bawaan: file yang namanya diawali nomor $Nomor (mis. 03.xxx.mp4 untuk RDP 3).
+    # Mau ganti aturannya? Ubah satu baris $cocok di bawah. Contoh:
+    #   semua file:          $cocok = @($daftar)
+    #   hanya yang memuat X: $cocok = @($daftar | Where-Object { $_.nama -match 'X' })
+    #   dua nomor sekaligus: $cocok = @($daftar | Where-Object { $_.nama -match '^(03|04)\.' })
     $cocok = @()
     foreach ($f in $daftar) {
         $angka = [regex]::Match($f.nama, '^\s*0*(\d{1,4})(?!\d)')
         if ($angka.Success -and [int]$angka.Groups[1].Value -eq $Nomor) { $cocok += $f }
     }
+    # --- akhir bagian atur ---
+
     if ($cocok.Count -eq 0) { throw "video nomor $Nomor tidak ditemukan di folder" }
 
     # Video bisa diganti di Drive (hari lain, judul lain, nomor sama), jadi
