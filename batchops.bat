@@ -58,11 +58,19 @@ del /q "%TARGET%" >nul 2>&1
 exit /b 1
 
 :jalan
-if "%FOLDER%"=="" set FOLDER=%TEMP%
+REM Tanpa argumen kedua, script memakai folder Downloads milik user.
 if "%SUMBER%"=="" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%"
+  if "%FOLDER%"=="" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR%
+  ) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%"
+  )
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%" -SumberVideo "%SUMBER%"
+  if "%FOLDER%"=="" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -SumberVideo "%SUMBER%"
+  ) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%" -SumberVideo "%SUMBER%"
+  )
 )
 del /q "%TARGET%" >nul 2>&1
 endlocal
