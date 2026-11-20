@@ -20,6 +20,9 @@ param(
 
     [string]$SoftwareUrl = 'https://drive.usercontent.google.com/download?id=1Sz2vug-QiQCZ0XBIndW1fl4hwPmrbbQv&export=download&authuser=0',
     [string]$FolderUrl   = 'https://drive.google.com/drive/u/1/folders/1LAU9WRkHrIkoA1gLl4zQwFERto2MOyEZ',
+    # Sumber video: Pixeldrain (list atau file). Bila diisi, $FolderUrl tidak
+    # dipakai. Contoh: -SumberVideo 'https://pixeldrain.com/l/AbCdEf12'
+    [string]$SumberVideo = 'https://pixeldrain.com/l/5KWaZi2z',
     [string]$Tujuan      = '',
     [switch]$TanpaSoftware,
     [switch]$TanpaVideo
@@ -296,7 +299,12 @@ function Ambil-DaftarDrive([string]$FolderId) {
                             if ($n -ge 1000000 -and $n -lt 100000000000) { $ukuran = $n; break }
                         }
                     }
-                    [void]$hasil.Add([pscustomobject]@{ id = $id; nama = $nama; ukuran = $ukuran })
+                    [void]$hasil.Add([pscustomobject]@{
+                        id = $id
+                        nama = $nama
+                        ukuran = $ukuran
+                        url = "https://drive.usercontent.google.com/download?id=$id&export=download&authuser=0"
+                    })
                     continue
                 }
             }
@@ -311,11 +319,41 @@ function Ambil-DaftarDrive([string]$FolderId) {
     return , $hasil.ToArray()
 }
 
+function Ambil-DaftarPixeldrain([string]$Link) {
+    # Daftar file dibaca dari API Pixeldrain (JSON UTF-8). Bisa berupa list
+    # (/l/<id>) maupun satu file (/u/<id>).
+    $id = if ($Link -match '/l/([A-Za-z0-9_-]+)') { $Matches[1] }
+          elseif ($Link -match '/u/([A-Za-z0-9_-]+)') { $Matches[1] }
+          else { throw "link Pixeldrain tidak dikenali: $Link" }
+    $json = Halaman-Drive "https://pixeldrain.com/api/list/$id"
+    $data = ConvertFrom-Json -InputObject $json
+
+    $hasil = New-Object System.Collections.ArrayList
+    foreach ($f in @($data.files)) {
+        if ($null -eq $f) { continue }
+        $nama = [string]$f.name
+        if (-not $nama) { continue }
+        [void]$hasil.Add([pscustomobject]@{
+            id = [string]$f.id
+            nama = $nama
+            ukuran = [long]$f.size
+            url = "https://pixeldrain.com/api/file/$($f.id)?download"
+        })
+    }
+    if ($hasil.Count -eq 0) { throw "list Pixeldrain kosong atau tidak bisa dibaca" }
+    return , $hasil.ToArray()
+}
+
 function Pasang-Video {
     Tulis '=== VIDEO ==='
-    $folderId = if ($FolderUrl -match 'folders/([A-Za-z0-9_-]+)') { $Matches[1] } else { throw 'link folder Drive tidak dikenali' }
-    $daftar = Ambil-DaftarDrive $folderId
-    Tulis "$($daftar.Count) file di folder Drive."
+    if ($SumberVideo) {
+        $daftar = Ambil-DaftarPixeldrain $SumberVideo
+        Tulis "$($daftar.Count) file di Pixeldrain."
+    } else {
+        $folderId = if ($FolderUrl -match 'folders/([A-Za-z0-9_-]+)') { $Matches[1] } else { throw 'link folder Drive tidak dikenali' }
+        $daftar = Ambil-DaftarDrive $folderId
+        Tulis "$($daftar.Count) file di folder Drive."
+    }
 
     $cocok = @()
     foreach ($f in $daftar) {
@@ -345,7 +383,7 @@ function Pasang-Video {
             Tulis "  sudah ada ($(Ukuran (Get-Item -LiteralPath $tujuan).Length)), unduh ulang untuk memastikan lengkap."
             Remove-Item -LiteralPath $tujuan -Force
         }
-        $ukuran = Unduh-Dengan-Ulang -Url "https://drive.usercontent.google.com/download?id=$($f.id)&export=download&authuser=0" -Simpan $tujuan
+        $ukuran = Unduh-Dengan-Ulang -Url $f.url -Simpan $tujuan
         if ($f.ukuran -gt 0 -and $ukuran -ne $f.ukuran) {
             Tulis "  PERINGATAN: ukuran $ukuran byte, seharusnya $($f.ukuran) byte."
         }
