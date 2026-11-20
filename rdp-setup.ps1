@@ -47,7 +47,7 @@ $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 # Sumber video yang dipakai: parameter -SumberVideo, lalu variabel lingkungan
 # BATCHOPS_SUMBER, lalu nilai bawaan. Dengan begitu link bisa diganti tanpa
 # menyentuh script sama sekali.
-$SumberBawaan = 'https://pixeldrain.com/l/5KWaZi2z'
+$SumberBawaan = 'https://pixeldrain.com/l/jbsdnP7W'
 if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
 $TujuanBawaan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
