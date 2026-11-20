@@ -44,22 +44,24 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
-# Sumber video yang dipakai: parameter -SumberVideo, lalu variabel lingkungan
-# BATCHOPS_SUMBER, lalu nilai bawaan. Dengan begitu link bisa diganti tanpa
-# menyentuh script sama sekali.
+# --- sumber video -----------------------------------------------------
+# Urutan: -SumberVideo, lalu BATCHOPS_SUMBER, lalu nilai bawaan di bawah.
+# Kosongkan $SumberBawaan ('') untuk memakai folder Google Drive ($FolderUrl).
 $SumberBawaan = 'https://pixeldrain.com/l/jbsdnP7W'
 if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
-$TujuanBawaan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
-# Default: folder Downloads milik user yang menjalankan script
-# (mis. C:\Users\RDP\Downloads).
-if (-not $Tujuan) { $Tujuan = $TujuanBawaan }
-$LogFile = Join-Path $Tujuan 'setup.log'
+
+# --- folder tujuan ----------------------------------------------------
+# Bawaan: folder Downloads milik user yang menjalankan script, misalnya
+# C:\Users\RDP\Downloads. Tidak pernah memakai %TEMP%.
+if (-not $Tujuan) { $Tujuan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
-# Jalur penuh: kalau $Tujuan relatif, file bisa mendarat di folder lain.
 $Tujuan = (Get-Item -LiteralPath $Tujuan).FullName
-# Hanya file unduhan yang ada di folder ini yang disentuh; file lain milik user
-# di folder Downloads tidak pernah dihapus.
+if ($Tujuan -match '\\Temp$') {
+    Write-Host "GAGAL: folder tujuan tidak boleh %TEMP% ($Tujuan)."
+    Write-Host "Hapus argumen -Tujuan agar file masuk ke Downloads."
+    exit 1
+}
 $LogFile = Join-Path $Tujuan 'setup.log'
 
 # PowerShell 5.1 membaca .ps1 sebagai ANSI kalau tidak ada BOM, sehingga nama
