@@ -17,8 +17,8 @@
 #  Nama file asli dari sumber dipertahankan, misalnya:
 #     03.空伞之下，旧爱皆是过客_FULL.mp4
 #
-#  Tujuan unduhan default: folder Downloads milik user yang menjalankan script
-#  (mis. C:\Users\RDP\Downloads). Ubah dengan -Tujuan "D:\lain".
+#  Tujuan unduhan: TETAP C:\Users\<user>\Downloads milik user yang menjalankan
+#  script (di RDP: C:\Users\RDP\Downloads). Tidak bisa diubah lewat argumen.
 #
 #  Bila nama berisi karakter yang tidak boleh dipakai Windows (< > : " / \ | ? *),
 #  hanya karakter itu yang diganti '_' . Nomor dan judul tetap utuh.
@@ -34,7 +34,6 @@ param(
     # dipakai. Bisa juga ditimpa tanpa mengubah script, lewat variabel
     # lingkungan BATCHOPS_SUMBER (mis. di batchops.bat: set BATCHOPS_SUMBER=...).
     [string]$SumberVideo = '',
-    [string]$Tujuan      = '',
     [switch]$TanpaSoftware,
     [switch]$TanpaVideo
 )
@@ -52,16 +51,11 @@ if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
 
 # --- folder tujuan ----------------------------------------------------
-# Bawaan: folder Downloads milik user yang menjalankan script, misalnya
-# C:\Users\RDP\Downloads. Tidak pernah memakai %TEMP%.
-if (-not $Tujuan) { $Tujuan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+# TETAP: C:\Users\<user>\Downloads milik user yang menjalankan script.
+# Di RDP ini hasilnya C:\Users\RDP\Downloads. Jangan diubah tanpa persetujuan.
+$Tujuan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
 $Tujuan = (Get-Item -LiteralPath $Tujuan).FullName
-if ($Tujuan -match '\\Temp$') {
-    Write-Host "GAGAL: folder tujuan tidak boleh %TEMP% ($Tujuan)."
-    Write-Host "Hapus argumen -Tujuan agar file masuk ke Downloads."
-    exit 1
-}
 $LogFile = Join-Path $Tujuan 'setup.log'
 
 # PowerShell 5.1 membaca .ps1 sebagai ANSI kalau tidak ada BOM, sehingga nama
