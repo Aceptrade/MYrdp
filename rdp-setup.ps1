@@ -21,8 +21,9 @@ param(
     [string]$SoftwareUrl = 'https://drive.usercontent.google.com/download?id=1Sz2vug-QiQCZ0XBIndW1fl4hwPmrbbQv&export=download&authuser=0',
     [string]$FolderUrl   = 'https://drive.google.com/drive/u/1/folders/1LAU9WRkHrIkoA1gLl4zQwFERto2MOyEZ',
     # Sumber video: Pixeldrain (list atau file). Bila diisi, $FolderUrl tidak
-    # dipakai. Contoh: -SumberVideo 'https://pixeldrain.com/l/AbCdEf12'
-    [string]$SumberVideo = 'https://pixeldrain.com/l/5KWaZi2z',
+    # dipakai. Bisa juga ditimpa tanpa mengubah script, lewat variabel
+    # lingkungan BATCHOPS_SUMBER (mis. di batchops.bat: set BATCHOPS_SUMBER=...).
+    [string]$SumberVideo = '',
     [string]$Tujuan      = '',
     [switch]$TanpaSoftware,
     [switch]$TanpaVideo
@@ -33,11 +34,16 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
+# Sumber video yang dipakai: parameter -SumberVideo, lalu variabel lingkungan
+# BATCHOPS_SUMBER, lalu nilai bawaan. Dengan begitu link bisa diganti tanpa
+# menyentuh script sama sekali.
+$SumberBawaan = 'https://pixeldrain.com/l/5KWaZi2z'
+if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
+if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
+$TujuanBawaan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
 # Default: folder Downloads milik user yang menjalankan script
 # (mis. C:\Users\RDP\Downloads).
-if (-not $Tujuan) {
-    $Tujuan = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
-}
+if (-not $Tujuan) { $Tujuan = $TujuanBawaan }
 $LogFile = Join-Path $Tujuan 'setup.log'
 New-Item -ItemType Directory -Force -Path $Tujuan | Out-Null
 # Jalur penuh: kalau $Tujuan relatif, file bisa mendarat di folder lain.
@@ -325,22 +331,25 @@ function Ambil-DaftarPixeldrain([string]$Link) {
     $id = if ($Link -match '/l/([A-Za-z0-9_-]+)') { $Matches[1] }
           elseif ($Link -match '/u/([A-Za-z0-9_-]+)') { $Matches[1] }
           else { throw "link Pixeldrain tidak dikenali: $Link" }
-    $json = Halaman-Drive "https://pixeldrain.com/api/list/$id"
-    $data = ConvertFrom-Json -InputObject $json
-
     $hasil = New-Object System.Collections.ArrayList
-    foreach ($f in @($data.files)) {
-        if ($null -eq $f) { continue }
-        $nama = [string]$f.name
-        if (-not $nama) { continue }
-        [void]$hasil.Add([pscustomobject]@{
-            id = [string]$f.id
-            nama = $nama
-            ukuran = [long]$f.size
-            url = "https://pixeldrain.com/api/file/$($f.id)?download"
-        })
+    try {
+        $json = Halaman-Drive "https://pixeldrain.com/api/list/$id"
+        $data = ConvertFrom-Json -InputObject $json
+        foreach ($f in @($data.files)) {
+            if ($null -eq $f) { continue }
+            $nama = [string]$f.name
+            if (-not $nama) { continue }
+            [void]$hasil.Add([pscustomobject]@{
+                id = [string]$f.id
+                nama = $nama
+                ukuran = [long]$f.size
+                url = "https://pixeldrain.com/api/file/$($f.id)?download"
+            })
+        }
+    } catch {
+        throw "list Pixeldrain '$id' tidak bisa dibaca (404 = list dihapus/kedaluwarsa, atau link-nya salah): $($_.Exception.Message)"
     }
-    if ($hasil.Count -eq 0) { throw "list Pixeldrain kosong atau tidak bisa dibaca" }
+    if ($hasil.Count -eq 0) { throw "list Pixeldrain '$id' kosong atau tidak bisa dibaca" }
     return , $hasil.ToArray()
 }
 
