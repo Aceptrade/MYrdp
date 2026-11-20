@@ -5,6 +5,7 @@ REM
 REM  Pakai di dalam RDP:
 REM      batchops.bat 3
 REM      batchops.bat 3 "D:\video"
+REM      batchops.bat 3 "" https://pixeldrain.com/l/AbCdEf12
 REM
 REM  Tanpa angka, nomornya ditebak dari IP publik RDP ini:
 REM  angka terakhir IP tersebut. Nomor yang ditebak ditampilkan dan
@@ -15,6 +16,11 @@ set NOMOR=%~1
 set FOLDER=%~2
 
 set URL=https://raw.githubusercontent.com/Aceptrade/MYrdp/main/rdp-setup.ps1
+REM Link Pixeldrain bisa diganti tanpa mengubah file ini:
+REM     set BATCHOPS_SUMBER=https://pixeldrain.com/l/AbCdEf12
+REM atau langsung:  batchops.bat 7 "" https://pixeldrain.com/l/AbCdEf12
+set SUMBER=%~3
+if "%SUMBER%"=="" set SUMBER=%BATCHOPS_SUMBER%
 REM Nama unik supaya tidak pernah memakai salinan lama dari %TEMP%.
 set TARGET=%TEMP%\rdp-setup-%RANDOM%%RANDOM%.ps1
 
@@ -52,10 +58,11 @@ del /q "%TARGET%" >nul 2>&1
 exit /b 1
 
 :jalan
-if "%FOLDER%"=="" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR%
-) else (
+if "%FOLDER%"=="" set FOLDER=%TEMP%
+if "%SUMBER%"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%"
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" -Nomor %NOMOR% -Tujuan "%FOLDER%" -SumberVideo "%SUMBER%"
 )
 del /q "%TARGET%" >nul 2>&1
 endlocal
