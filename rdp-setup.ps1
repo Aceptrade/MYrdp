@@ -81,6 +81,55 @@ function Nama-Aman([string]$Nama) {
 }
 
 # ---------------------------------------------------------------- unduh
+function Halaman-Drive([string]$Url) {
+    # Halaman Drive dibaca sebagai BYTE lalu di-decode UTF-8, karena
+    # Invoke-WebRequest bisa salah menebak encoding-nya.
+    $minta = [System.Net.WebRequest]::Create($Url)
+    $minta.UserAgent = $UA
+    $minta.Timeout = 60000
+    $minta.ReadWriteTimeout = 120000
+    $jawab = $minta.GetResponse()
+    try {
+        $alir = $jawab.GetResponseStream()
+        $memori = New-Object System.IO.MemoryStream
+        try {
+            $alir.CopyTo($memori)
+            return [System.Text.Encoding]::UTF8.GetString($memori.ToArray())
+        } finally { $memori.Dispose(); $alir.Dispose() }
+    } finally { $jawab.Close() }
+}
+
+function Link-KonfirmasiDrive([string]$Url) {
+    # File di atas ~100 MB dikirim sebagai halaman "Virus scan warning" dengan
+    # formulir konfirmasi ("Download anyway"). Link hasil konfirmasi dipakai
+    # untuk unduhan sebenarnya.
+    $halaman = Halaman-Drive $Url
+    $form = [regex]::Match($halaman, '<form[^>]*action="([^"]+)"[^>]*>(.*?)</form>', 'Singleline,IgnoreCase')
+    if (-not $form.Success) { return $null }
+
+    $aksi = $form.Groups[1].Value -replace '&amp;', '&'
+    $pasangan = @()
+    foreach ($i in [regex]::Matches($form.Groups[2].Value, '<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', 'IgnoreCase')) {
+        $pasangan += ('{0}={1}' -f [uri]::EscapeDataString($i.Groups[1].Value), [uri]::EscapeDataString($i.Groups[2].Value))
+    }
+    if (-not $pasangan) { return $null }
+    return $aksi + '?' + ($pasangan -join '&')
+}
+
+function Pesan-Drive([string]$Url) {
+    # Menerjemahkan halaman kesalahan Drive menjadi satu kalimat yang jelas,
+    # misalnya kuota unduhan Google habis.
+    try { $halaman = Halaman-Drive $Url } catch { return $null }
+    $judul = [regex]::Match($halaman, '<title>(.*?)</title>', 'Singleline')
+    if ($judul.Success -and $judul.Groups[1].Value -match 'Quota exceeded') {
+        return 'kuota unduhan Google Drive habis untuk file ini (terlalu banyak orang mengunduhnya dalam 24 jam) - coba lagi nanti atau pakai akun/link lain'
+    }
+    if ($judul.Success -and $judul.Groups[1].Value -match 'Virus scan warning') {
+        return 'Drive meminta konfirmasi "Download anyway" tetapi halaman konfirmasi tidak terbaca'
+    }
+    return $null
+}
+
 function Ambil-File([string]$Url, [string]$Simpan) {
     # .NET menyimpan dengan nama ANSI (ANSI_NAME) bila jalurnya dianggap bukan
     # Unicode; disini nama file justru berisi CJK, jadi unduhan ditulis ke nama
@@ -90,16 +139,8 @@ function Ambil-File([string]$Url, [string]$Simpan) {
     try {
         $link = $Url
         if ($Url -match 'drive\.(usercontent\.)?google\.com') {
-            $halaman = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = $UA }).Content
-            $form = [regex]::Match($halaman, '<form[^>]*action="([^"]+)"[^>]*>(.*?)</form>', 'Singleline,IgnoreCase')
-            if ($form.Success) {
-                $aksi = $form.Groups[1].Value -replace '&amp;', '&'
-                $pasangan = @()
-                foreach ($i in [regex]::Matches($form.Groups[2].Value, '<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', 'IgnoreCase')) {
-                    $pasangan += ('{0}={1}' -f [uri]::EscapeDataString($i.Groups[1].Value), [uri]::EscapeDataString($i.Groups[2].Value))
-                }
-                if ($pasangan) { $link = $aksi + '?' + ($pasangan -join '&') }
-            }
+            $konfirmasi = Link-KonfirmasiDrive $Url
+            if ($konfirmasi) { $link = $konfirmasi }
         }
         $klien = New-Object System.Net.WebClient
         try {
@@ -111,7 +152,11 @@ function Ambil-File([string]$Url, [string]$Simpan) {
         }
         if (-not (Test-Path -LiteralPath $sementara)) { throw 'file hasil unduhan tidak ditemukan' }
         $ukuran = (Get-Item -LiteralPath $sementara).Length
-        if ($ukuran -lt 65536) { throw "server mengirim halaman kecil ($ukuran byte), bukan file" }
+        if ($ukuran -lt 65536) {
+            $sebab = if ($Url -match 'drive\.') { Pesan-Drive $link } else { $null }
+            if (-not $sebab) { $sebab = "server mengirim halaman kecil ($ukuran byte), bukan file" }
+            throw $sebab
+        }
 
         if (Test-Path -LiteralPath $Simpan) { Remove-Item -LiteralPath $Simpan -Force }
         Move-Item -LiteralPath $sementara -Destination $Simpan -Force
@@ -126,8 +171,12 @@ function Unduh-Dengan-Ulang([string]$Url, [string]$Simpan) {
         try {
             return (Ambil-File -Url $Url -Simpan $Simpan)
         } catch {
-            Tulis "  gagal (percobaan $coba/3): $($_.Exception.Message)"
+            $pesan = $_.Exception.Message
+            Tulis "  gagal (percobaan $coba/3): $pesan"
             Remove-Item -LiteralPath $Simpan -Force -ErrorAction SilentlyContinue
+            # Kuota habis tidak akan sembuh dalam hitungan detik; mengulang
+            # hanya membuat log ramai.
+            if ($pesan -match 'kuota') { break }
             if ($coba -lt 3) { Start-Sleep -Seconds (5 * $coba) }
         }
     }
