@@ -46,7 +46,7 @@ $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 # --- sumber video -----------------------------------------------------
 # Urutan: -SumberVideo, lalu BATCHOPS_SUMBER, lalu nilai bawaan di bawah.
 # Kosongkan $SumberBawaan ('') untuk memakai folder Google Drive ($FolderUrl).
-$SumberBawaan = 'https://pixeldrain.com/l/jbsdnP7W'
+$SumberBawaan = 'https://pixeldrain.com/l/Du1FuiwP'
 if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
 
