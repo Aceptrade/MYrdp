@@ -46,7 +46,7 @@ $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 # --- sumber video -----------------------------------------------------
 # Urutan: -SumberVideo, lalu BATCHOPS_SUMBER, lalu nilai bawaan di bawah.
 # Kosongkan $SumberBawaan ('') untuk memakai folder Google Drive ($FolderUrl).
-$SumberBawaan = 'https://pixeldrain.com/l/Du1FuiwP'
+$SumberBawaan = 'https://gofile.io/d/SpluP6q8'
 if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
 
@@ -331,6 +331,71 @@ function Ambil-DaftarDrive([string]$FolderId) {
     return , $hasil.ToArray()
 }
 
+function Ambil-DaftarGofile([string]$Link) {
+    # Gofile tidak mengenkripsi file: nama dan link unduhan langsung dibaca
+    # dari API. Link folder: https://gofile.io/d/<kode>
+    $kode = if ($Link -match '/d/([A-Za-z0-9]+)') { $Matches[1] }
+            elseif ($Link -match '^[A-Za-z0-9]{6,}$') { $Link }
+            else { throw "link Gofile tidak dikenali: $Link" }
+    # wt = website token publik milik situs gofile (bukan token akun).
+    $wt = '4fd6sg89d7s6'
+    $hasil = New-Object System.Collections.ArrayList
+
+    # 1) Akun tamu: token diperlukan untuk membaca isi folder.
+    $token = $null
+    try {
+        $badan = '{}'
+        $req = [System.Net.WebRequest]::Create('https://api.gofile.io/accounts')
+        $req.Method = 'POST'
+        $req.ContentType = 'application/json'
+        $req.UserAgent = $UA
+        $req.Timeout = 30000
+        $b = [System.Text.Encoding]::UTF8.GetBytes($badan)
+        $req.ContentLength = $b.Length
+        $st = $req.GetRequestStream(); $st.Write($b, 0, $b.Length); $st.Close()
+        $resp = $req.GetResponse()
+        try {
+            $sr = New-Object System.IO.StreamReader($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
+            $akun = ConvertFrom-Json -InputObject $sr.ReadToEnd()
+            $sr.Close()
+        } finally { $resp.Close() }
+        if ($akun.status -eq 'ok') { $token = [string]$akun.data.token }
+    } catch { }
+
+    $api = "https://api.gofile.io/contents/$kode?wt=$wt&cache=true&contentFilter=all&sortField=createTime&sortDirection=1"
+    try {
+        $req = [System.Net.WebRequest]::Create($api)
+        $req.Method = 'GET'
+        $req.UserAgent = $UA
+        $req.Timeout = 60000
+        if ($token) { $req.Headers.Add('Authorization', "Bearer $token") }
+        $resp = $req.GetResponse()
+        try {
+            $sr = New-Object System.IO.StreamReader($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
+            $json = $sr.ReadToEnd()
+            $sr.Close()
+        } finally { $resp.Close() }
+        $data = ConvertFrom-Json -InputObject $json
+        if ($data.status -ne 'ok') { throw "status API: $($data.status)" }
+        foreach ($anak in @($data.data.children)) {
+            if ($null -eq $anak) { continue }
+            if ($anak.type -ne 'file') { continue }
+            $nama = [string]$anak.name
+            if (-not $nama) { continue }
+            [void]$hasil.Add([pscustomobject]@{
+                id = [string]$anak.id
+                nama = $nama
+                ukuran = [long]$anak.size
+                url = [string]$anak.link
+            })
+        }
+    } catch {
+        throw "folder Gofile '$kode' tidak bisa dibaca (404 = folder dihapus/kedaluwarsa, link salah, atau api.gofile.io diblokir jaringan): $($_.Exception.Message)"
+    }
+    if ($hasil.Count -eq 0) { throw "folder Gofile '$kode' kosong atau tidak berisi file" }
+    return , $hasil.ToArray()
+}
+
 function Ambil-DaftarPixeldrain([string]$Link) {
     # Daftar file dibaca dari API Pixeldrain (JSON UTF-8). Bisa berupa list
     # (/l/<id>) maupun satu file (/u/<id>).
@@ -362,8 +427,13 @@ function Ambil-DaftarPixeldrain([string]$Link) {
 function Pasang-Video {
     Tulis '=== VIDEO ==='
     if ($SumberVideo) {
-        $daftar = Ambil-DaftarPixeldrain $SumberVideo
-        Tulis "$($daftar.Count) file di Pixeldrain."
+        if ($SumberVideo -match 'gofile\.io' -or $SumberVideo -match '^[A-Za-z0-9]{6,}$') {
+            $daftar = Ambil-DaftarGofile $SumberVideo
+            Tulis "$($daftar.Count) file di Gofile."
+        } else {
+            $daftar = Ambil-DaftarPixeldrain $SumberVideo
+            Tulis "$($daftar.Count) file di Pixeldrain."
+        }
     } else {
         $folderId = if ($FolderUrl -match 'folders/([A-Za-z0-9_-]+)') { $Matches[1] } else { throw 'link folder Drive tidak dikenali' }
         $daftar = Ambil-DaftarDrive $folderId
