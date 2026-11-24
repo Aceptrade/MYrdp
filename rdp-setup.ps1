@@ -44,9 +44,10 @@ $ProgressPreference = 'SilentlyContinue'
 $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
 # --- sumber video -----------------------------------------------------
-# Urutan: -SumberVideo, lalu BATCHOPS_SUMBER, lalu nilai bawaan di bawah.
-# Kosongkan $SumberBawaan ('') untuk memakai folder Google Drive ($FolderUrl).
-$SumberBawaan = 'https://gofile.io/d/SpluP6q8'
+# Urutan: -SumberVideo, lalu BATCHOPS_SUMBER, lalu folder Google Drive ($FolderUrl).
+# Kosongkan $SumberBawaan ('') untuk memakai folder Google Drive di -FolderUrl.
+# Sumber lain: link Gofile (https://gofile.io/d/...) atau Pixeldrain (/l/... atau /u/...).
+$SumberBawaan = ''
 if (-not $SumberVideo) { $SumberVideo = $env:BATCHOPS_SUMBER }
 if (-not $SumberVideo) { $SumberVideo = $SumberBawaan }
 
